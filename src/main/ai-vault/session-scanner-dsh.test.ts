@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -91,6 +91,22 @@ describe('scanAiVaultSessions dsh', () => {
 
     expect(result.sessions).toEqual([])
     expect(result.issues).toEqual([expect.objectContaining({ agent: 'dsh', path: sessionFile })])
+  })
+
+  it('lists an uncompressed session written with compression off', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-ai-vault-dsh-'))
+    tempRoots.push(root)
+    const roots = isolatedScanRoots(root)
+    const sessionDir = join(roots.dshSessionsDir, '--tmp-dsh--', 'plain')
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'session.v4.jsonl'), `${sampleCaptureLines().join('\n')}\n`)
+
+    const result = await scanAiVaultSessions({ ...roots, platform: 'darwin', limit: 20 })
+
+    expect(result.issues).toEqual([])
+    expect(result.sessions.map((session) => [session.sessionId, session.title])).toEqual([
+      ['capture', 'Capture this prompt']
+    ])
   })
 
   it('prefers a chosen title over the fallback stub', () => {
