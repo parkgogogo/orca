@@ -37,6 +37,7 @@ describe('buildAiVaultServiceEnv', () => {
         CLINE_SESSION_DATA_DIR: '/home/dev/cline-sessions',
         COPILOT_HOME: '/home/dev/.copilot',
         DEVIN_HOME: '/home/dev/.devin',
+        DSH_HOME: '/home/dev/dsh-data',
         GROK_HOME: '/home/dev/.grok',
         KIMI_CODE_HOME: '/home/dev/.kimi-code',
         KIRO_HOME: '/home/dev/kiro-data',
@@ -56,6 +57,7 @@ describe('buildAiVaultServiceEnv', () => {
       CLINE_SESSION_DATA_DIR: '/home/dev/cline-sessions',
       COPILOT_HOME: '/home/dev/.copilot',
       DEVIN_HOME: '/home/dev/.devin',
+      DSH_HOME: '/home/dev/dsh-data',
       GROK_HOME: '/home/dev/.grok',
       KIMI_CODE_HOME: '/home/dev/.kimi-code',
       KIRO_HOME: '/home/dev/kiro-data',
@@ -123,6 +125,11 @@ describe('buildRelayAiVaultServiceEnv', () => {
     })
     expect(buildRelayAiVaultServiceEnv({ kiro_home: 'D:\\kiro' }, 'win32')).toEqual({
       KIRO_HOME: 'D:\\kiro'
+    })
+  })
+  it('preserves the execution host DSH home', () => {
+    expect(buildRelayAiVaultServiceEnv({ DSH_HOME: '/srv/dsh' }, 'linux')).toEqual({
+      DSH_HOME: '/srv/dsh'
     })
   })
   it('drops Node flag injection variables', () => {
