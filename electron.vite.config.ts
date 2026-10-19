@@ -77,6 +77,10 @@ function createDarkBuildMarkerPlugin(): Plugin {
 // bundled skills on every channel. Main runs the installer; the renderer prints the command.
 const ORCA_BUILD_COMMIT_LITERAL = JSON.stringify(resolveBuildSourceCommit())
 
+// Why: this fork is installed by hand; the official release feed would offer stablyai
+// builds that replace it. Updates stay compiled out unless a build opts back in.
+const ORCA_UPDATES_DISABLED_LITERAL = JSON.stringify(process.env.ORCA_ENABLE_UPDATES !== '1')
+
 function createStartupDiagnosticsBanner(chunkName: string): string {
   return `
 ;(() => {
@@ -268,6 +272,7 @@ export const electronViteConfig: UserConfig = {
       ORCA_POSTHOG_WRITE_KEY: ORCA_POSTHOG_WRITE_KEY_LITERAL,
       ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL,
       ORCA_BUILD_COMMIT: ORCA_BUILD_COMMIT_LITERAL,
+      ORCA_UPDATES_DISABLED: ORCA_UPDATES_DISABLED_LITERAL,
       ...DARK_BUILD_DEFINES
     },
     // Why: @xterm/headless declares "exports": null in package.json, which

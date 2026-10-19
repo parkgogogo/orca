@@ -16,7 +16,9 @@ const transforms = {
   define: {
     ORCA_FEATURE_WALL_ENABLED: 'true',
     // Why: tests only interpolate it; they must not depend on the checkout's HEAD.
-    ORCA_BUILD_COMMIT: JSON.stringify('0'.repeat(40))
+    ORCA_BUILD_COMMIT: JSON.stringify('0'.repeat(40)),
+    // Why: the updater suites exercise the update paths a releasable build has.
+    ORCA_UPDATES_DISABLED: 'false'
   },
   resolve: {
     alias: [
