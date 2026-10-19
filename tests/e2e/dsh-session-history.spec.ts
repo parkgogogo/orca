@@ -32,7 +32,11 @@ const PNG = Buffer.from(
 )
 
 const source = process.env.ORCA_E2E_DSH_HOME_SOURCE?.trim()
-const dshHome = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-dsh-home-'))
+// Playwright also imports this spec in its runner process; only a test worker gets a home.
+const inWorker = process.env.TEST_WORKER_INDEX !== undefined
+const dshHome = inWorker
+  ? mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-dsh-home-'))
+  : path.join(os.tmpdir(), 'orca-e2e-dsh-home-unused')
 const sessionId = source ? (process.env.ORCA_E2E_DSH_SESSION_ID?.trim() ?? '') : SYNTHETIC_ID
 const frame = (row: Record<string, unknown>): Buffer =>
   zstdCompressSync(Buffer.from(`${JSON.stringify(row)}\n`))
@@ -118,7 +122,7 @@ function copyRealHome(from: string): string {
   return ''
 }
 
-const sessionFile = source ? copyRealHome(source) : seedSyntheticHome()
+const sessionFile = !inWorker ? '' : source ? copyRealHome(source) : seedSyntheticHome()
 
 test.use({ orcaAppExtraEnv: { DSH_HOME: dshHome } })
 test.afterAll(() => rmSync(dshHome, { recursive: true, force: true }))
