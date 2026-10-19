@@ -1,143 +1,21 @@
-import { readFile } from 'node:fs/promises'
-import { StringDecoder } from 'node:string_decoder'
-import { isWslUncPath } from '../../shared/wsl-paths'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
-import { readTranscriptSlice, transcriptFileStat } from '../native-chat/wsl-transcript-fs-access'
+import { readDshLog, isDshTypedPrompt } from '../dsh/session-log/dsh-log'
+import { readDshLogFile } from '../dsh/session-log/dsh-log-file'
+import type { DshBlock, DshEntry, DshLog } from '../dsh/session-log/dsh-log-types'
 import {
   addPreviewContent,
+  addPreviewMessage,
   createAccumulator,
   finalizeSession,
+  timestampIso,
   updateTimeline
 } from './session-scanner-accumulator'
-import { DSH_ZSTD_SESSION_FILE_SUFFIX, dshSessionIdFromFilePath } from './session-scanner-dsh-paths'
-import { decompressZstdFrames } from './session-scanner-dsh-zstd-frames'
-import { tokenTotal } from './session-scanner-token-values'
 import type { FileWithMtime, SessionAccumulator } from './session-scanner-types'
+import { transcriptMessagesFromContent } from './session-transcript-message-content'
 import type { TranscriptMessageSink } from './session-transcript-consumers'
-import {
-  arrayValue,
-  asRecord,
-  extractString,
-  normalizeTitleText,
-  parseJsonObject
-} from './session-scanner-values'
+import { normalizeTitleText } from './session-scanner-values'
 
-// User-role turns DSH injects itself (agent-instructions, runtime-context,
-// skill-catalog, subagent-settled, ...) carry another source kind.
-const DSH_TYPED_USER_SOURCE_KIND = 'user'
-// A title the model or the user chose outranks the first-prompt stub DSH writes up front.
-const DSH_FALLBACK_TITLE_SOURCE_KIND = 'fallback'
-// Reasoning leads each step, so keeping it would fill the short preview with chain-of-thought.
-const DSH_REASONING_BLOCK_TYPE = 'reasoning'
-
-type DshFoldState = {
-  // Null until the header line is read; false excludes the whole session.
-  isTopLevel: boolean | null
-  title: string | null
-  titleIsFallback: boolean
-}
-
-/** Subagent sessions resume only through their parent, so they stay out of the top-level list. */
-function isTopLevelDshSessionHeader(header: Record<string, unknown>): boolean {
-  if (header.origin === 'subagent' || extractString(header.parentSession)) {
-    return false
-  }
-  return !(typeof header.delegationDepth === 'number' && header.delegationDepth > 0)
-}
-
-function foldDshHeader(
-  accumulator: SessionAccumulator,
-  state: DshFoldState,
-  header: Record<string, unknown>
-): void {
-  state.isTopLevel = isTopLevelDshSessionHeader(header)
-  accumulator.sessionId = extractString(header.id) ?? accumulator.sessionId
-  accumulator.cwd ??= extractString(header.cwd)
-  updateTimeline(accumulator, header.createdAt)
-}
-
-function foldDshTitle(state: DshFoldState, data: Record<string, unknown>): void {
-  const title = extractString(data.title)
-  if (!title) {
-    return
-  }
-  const isFallback = asRecord(data.source)?.kind === DSH_FALLBACK_TITLE_SOURCE_KIND
-  // Latest wins, except that a later fallback never replaces a chosen title.
-  if (isFallback && state.title && !state.titleIsFallback) {
-    return
-  }
-  state.title = title
-  state.titleIsFallback = isFallback
-}
-
-function foldDshUserMessage(
-  accumulator: SessionAccumulator,
-  data: Record<string, unknown>,
-  time: unknown
-): void {
-  if (asRecord(data.source)?.kind !== DSH_TYPED_USER_SOURCE_KIND) {
-    return
-  }
-  accumulator.messageCount++
-  const firstText = arrayValue(data.content)
-    .map((block) => extractString(asRecord(block)?.text))
-    .find((text) => text !== null)
-  if (firstText) {
-    accumulator.fallbackTitle ??= normalizeTitleText(firstText)
-  }
-  addPreviewContent(accumulator, 'user', data.content, time)
-}
-
-function foldDshAssistantMessage(
-  accumulator: SessionAccumulator,
-  data: Record<string, unknown>,
-  time: unknown
-): void {
-  const message = asRecord(data.message)
-  accumulator.totalTokens += tokenTotal(data.usage)
-  const content = arrayValue(message?.content).filter(
-    (block) => asRecord(block)?.type !== DSH_REASONING_BLOCK_TYPE
-  )
-  // Tool-call-only steps are not turns a reader recognizes as replies.
-  if (!content.some((block) => asRecord(block)?.type === 'text')) {
-    return
-  }
-  accumulator.messageCount++
-  addPreviewContent(accumulator, 'assistant', content, time)
-}
-
-function foldDshLine(accumulator: SessionAccumulator, state: DshFoldState, line: string): void {
-  const record = parseJsonObject(line)
-  if (!record) {
-    return
-  }
-  if (record.type === 'session') {
-    foldDshHeader(accumulator, state, record)
-    return
-  }
-  updateTimeline(accumulator, record.time)
-  const data = asRecord(record.data)
-  if (!data) {
-    return
-  }
-  switch (record.type) {
-    case 'user/message':
-      foldDshUserMessage(accumulator, data, record.time)
-      break
-    case 'assistant/message':
-      foldDshAssistantMessage(accumulator, data, record.time)
-      break
-    case 'session/title':
-      foldDshTitle(state, data)
-      break
-    case 'request/header':
-      accumulator.model =
-        extractString(asRecord(asRecord(data.header)?.config)?.model) ?? accumulator.model
-      break
-    default:
-      break
-  }
-}
+type DshTitleState = { title: string | null; isFallback: boolean }
 
 /** Fold one DSH session's decoded JSONL; null for subagent sessions and headerless files. */
 export function parseDshSessionLines(
@@ -146,55 +24,148 @@ export function parseDshSessionLines(
   platform: NodeJS.Platform = process.platform,
   messages?: TranscriptMessageSink
 ): AiVaultSession | null {
+  const log = readDshLog([...lines])
+  return log ? foldDshSession(file, log, platform, messages) : null
+}
+
+/**
+ * A session row from a read log. Only the session's own history counts: a fork's
+ * inherited prefix is its parent's conversation, so it feeds neither the title,
+ * the first prompt, the counts nor search. The model is the exception — a fork
+ * keeps talking to its parent's model until it sends a request of its own.
+ */
+export function foldDshSession(
+  file: FileWithMtime,
+  log: DshLog,
+  platform: NodeJS.Platform = process.platform,
+  messages?: TranscriptMessageSink
+): AiVaultSession | null {
+  // Subagent sessions resume only through their parent, so they stay out of the list.
+  if (log.header.isSubagent) {
+    return null
+  }
   const accumulator = createAccumulator({
     agent: 'dsh',
     file,
-    sessionId: dshSessionIdFromFilePath(file.path),
+    sessionId: log.header.id,
     messages
   })
-  const state: DshFoldState = {
-    isTopLevel: null,
-    title: null,
-    titleIsFallback: false
-  }
-  for (const line of lines) {
-    foldDshLine(accumulator, state, line)
-    if (state.isTopLevel === false) {
-      return null
+  accumulator.cwd = log.header.cwd
+  updateTimeline(accumulator, log.header.createdAt)
+  const titles: DshTitleState = { title: null, isFallback: false }
+  log.entries.forEach((entry, index) => {
+    if (entry.kind === 'model') {
+      accumulator.model = entry.model
+    } else if (index >= log.ownStart) {
+      foldOwnEntry(accumulator, titles, entry)
     }
-  }
-  if (state.isTopLevel === null) {
-    return null
-  }
+  })
   // DSH's fallback title is a truncated stub of the first prompt; the normalized prompt reads better.
-  if (state.title && !state.titleIsFallback) {
-    accumulator.title = state.title
+  if (titles.title && !titles.isFallback) {
+    accumulator.title = titles.title
   } else {
-    accumulator.fallbackTitle ??= state.title
+    accumulator.fallbackTitle ??= titles.title
   }
   return finalizeSession(accumulator, platform)
 }
 
-async function readDshSessionBytes(path: string): Promise<Buffer> {
-  // Why: the gated readfile only returns text; a WSL path reads binary through a sliced read.
-  if (!isWslUncPath(path)) {
-    return readFile(path)
+function foldOwnEntry(
+  accumulator: SessionAccumulator,
+  titles: DshTitleState,
+  entry: DshEntry
+): void {
+  updateTimeline(accumulator, entry.time)
+  switch (entry.kind) {
+    case 'user':
+      if (isDshTypedPrompt(entry)) {
+        accumulator.messageCount++
+        const firstText = entry.blocks.find((block) => block.type === 'text')
+        if (firstText?.type === 'text') {
+          accumulator.fallbackTitle ??= normalizeTitleText(firstText.text)
+        }
+        addPreviewContent(accumulator, 'user', searchContent(entry.blocks), entry.time)
+      }
+      break
+    case 'assistant':
+      foldAssistant(accumulator, entry)
+      break
+    case 'tool-result':
+      publish(accumulator, 'tool', searchContent(entry.blocks), entry.time)
+      break
+    case 'command':
+      publish(
+        accumulator,
+        'user',
+        `/${entry.name}${entry.args ? ` ${entry.args}` : ''}`,
+        entry.time
+      )
+      break
+    case 'title':
+      // Latest wins, except that a later fallback never replaces a chosen title.
+      if (!(entry.fallback && titles.title && !titles.isFallback)) {
+        titles.title = entry.title
+        titles.isFallback = entry.fallback
+      }
+      break
+    default:
+      break
   }
-  const { size } = await transcriptFileStat(path, 'scan')
-  return readTranscriptSlice(path, 0, size, 'scan')
 }
 
-function* decodedDshLines(path: string, bytes: Buffer): Generator<string> {
-  const chunks = path.endsWith(DSH_ZSTD_SESSION_FILE_SUFFIX) ? decompressZstdFrames(bytes) : [bytes]
-  // Why: a frame boundary may split a multibyte character.
-  const decoder = new StringDecoder('utf8')
-  let carry = ''
-  for (const chunk of chunks) {
-    const lines = (carry + decoder.write(chunk)).split('\n')
-    carry = lines.pop() ?? ''
-    yield* lines
+function foldAssistant(
+  accumulator: SessionAccumulator,
+  entry: Extract<DshEntry, { kind: 'assistant' }>
+): void {
+  accumulator.totalTokens += entry.usage?.totalTokens ?? 0
+  if (entry.model) {
+    accumulator.model = entry.model
   }
-  // A final line without its newline is a record still being written.
+  // Search sees the whole step: reasoning, the reply and the tools it called.
+  publish(accumulator, 'assistant', searchContent(entry.blocks), entry.time)
+  // The short preview shows replies only; reasoning leads every step and would fill it.
+  const reply = entry.blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n')
+  // Tool-call-only steps are not turns a reader recognizes as replies.
+  if (!reply.trim()) {
+    return
+  }
+  accumulator.messageCount++
+  addPreviewMessage(accumulator, {
+    role: 'assistant',
+    text: reply,
+    timestamp: entry.time,
+    publishMessage: false
+  })
+}
+
+/** Blocks in the shared consumer shape: text-like blocks, then tool calls as `tool_use`. */
+function searchContent(blocks: readonly DshBlock[]): unknown[] {
+  return blocks.flatMap((block): Record<string, unknown>[] => {
+    switch (block.type) {
+      case 'text':
+      case 'reasoning':
+        return [{ type: block.type, text: block.text }]
+      case 'tool-call':
+        return [{ type: 'tool_use', name: block.name, input: block.input }]
+      case 'image':
+        return block.name ? [{ type: 'text', text: `[image: ${block.name}]` }] : []
+    }
+  })
+}
+
+function publish(
+  accumulator: SessionAccumulator,
+  role: 'user' | 'assistant' | 'tool',
+  content: unknown,
+  time: number | null
+): void {
+  if (!accumulator.messages.active) {
+    return
+  }
+  for (const message of transcriptMessagesFromContent(role, content, timestampIso(time))) {
+    accumulator.messages.push(message)
+  }
 }
 
 export async function parseDshSessionFile(
@@ -202,6 +173,6 @@ export async function parseDshSessionFile(
   platform: NodeJS.Platform = process.platform,
   messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
-  const bytes = await readDshSessionBytes(file.path)
-  return parseDshSessionLines(file, decodedDshLines(file.path, bytes), platform, messages)
+  const { log } = await readDshLogFile(file.path, 'scan')
+  return log ? foldDshSession(file, log, platform, messages) : null
 }

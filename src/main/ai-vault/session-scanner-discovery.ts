@@ -44,6 +44,7 @@ export async function discoverFiles(args: {
   filePredicate?: (path: string) => boolean
   contentDependencyPath?: (path: string) => string | undefined | Promise<string | undefined>
   directoryPredicate?: (name: string, depth: number) => boolean
+  selectEntries?: (entries: Dirent[]) => Dirent[]
   // A scoped scan walks every file this agent has, not only the newest `limit`.
   keepScopeFiles?: boolean
   signal?: AbortSignal
@@ -151,7 +152,7 @@ export async function discoverFiles(args: {
     if (path === args.rootDir) {
       source.close = openAiVaultScanSource(args.signal, args.agent)
     }
-    return entries
+    return args.selectEntries ? args.selectEntries(entries) : entries
   }
 
   try {

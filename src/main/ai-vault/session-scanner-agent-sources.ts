@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { pathSegments } from './session-file-discovery'
@@ -13,7 +14,11 @@ import {
 } from './session-scanner-cline-parser'
 import { cursorChatMetaPath } from './session-scanner-cursor-chat-meta'
 import { devinSessionsDbDependencyPath } from './session-scanner-devin-db'
-import { isDshSessionFilePath, resolveDshSessionsDir } from './session-scanner-dsh-paths'
+import {
+  isDshSessionFilePath,
+  resolveDshSessionsDir,
+  selectDshGenerationEntries
+} from './session-scanner-dsh-paths'
 import { resolveKimiSessionsDir } from './session-scanner-kimi-paths'
 import { resolveMuseSessionsDir } from './session-scanner-muse-paths'
 import {
@@ -93,6 +98,9 @@ export type AiVaultAgentSource = {
   contentDependencyPath?: (filePath: string) => string | undefined | Promise<string | undefined>
   // Return false to skip a directory; depth 0 is a child of the root.
   directoryPredicate?: (name: string, depth: number) => boolean
+  // Narrows each directory listing before its entries are visited, for an agent
+  // whose files are only meaningful relative to their siblings.
+  selectEntries?: (entries: Dirent[]) => Dirent[]
   // Roots that are alternates for one install rather than distinct locations,
   // so the per-agent limit applies across them rather than to each.
   mergeRootDiscoveries?: boolean
@@ -343,7 +351,9 @@ export const AI_VAULT_AGENT_SOURCES: AiVaultAgentSourceTable = {
     extensions: ['.zstd', '.jsonl'],
     filePredicate: isDshSessionFilePath,
     // <root>/<encoded-cwd>/<session-id>/session.v<N>.jsonl[.zstd]; nothing nests deeper.
-    directoryPredicate: (_name, depth) => depth <= 1
+    directoryPredicate: (_name, depth) => depth <= 1,
+    // A migrated session keeps its older generations beside the live one.
+    selectEntries: selectDshGenerationEntries
   }
 }
 
