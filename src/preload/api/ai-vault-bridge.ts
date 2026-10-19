@@ -8,6 +8,7 @@ import type {
 } from '../../shared/ai-vault-session-deletion'
 import type {
   AiVaultFirstUserPromptArgs,
+  AiVaultExportDshTranscriptArgs,
   AiVaultListArgs,
   AiVaultSubagentListArgs
 } from '../../shared/ai-vault-types'
@@ -55,6 +56,8 @@ export const aiVaultApi = {
     ipcRenderer.invoke('aiVault:listSubagentSessions', args),
   getFirstUserPrompt: (args: AiVaultFirstUserPromptArgs) =>
     ipcRenderer.invoke('aiVault:getFirstUserPrompt', args),
+  exportDshTranscript: (args: AiVaultExportDshTranscriptArgs) =>
+    ipcRenderer.invoke('aiVault:exportDshTranscript', args),
   deleteSession: (args: AiVaultDeleteSessionArgs): Promise<AiVaultDeleteSessionResult> =>
     ipcRenderer.invoke('aiVault:deleteSession', args),
   onWindowFocused: (callback: () => void): (() => void) => {

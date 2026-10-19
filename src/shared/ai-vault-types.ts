@@ -187,6 +187,17 @@ export type AiVaultFirstUserPromptResult = {
   prompt: string | null
 }
 
+/** Readable copy of a local DSH session log, for handing to another agent as context. */
+export type AiVaultExportDshTranscriptArgs = {
+  filePath: string
+  title?: string | null
+}
+
+export type AiVaultExportDshTranscriptResult = {
+  /** The Markdown file written, or null when the log is not a local DSH session. */
+  path: string | null
+}
+
 // A session is only offered for normal resume when its transcript actually holds
 // conversation turns; resuming a zero-turn transcript lands in an empty session.
 // Conversation previews count as evidence too: some parsers (e.g. Grok, OpenCode

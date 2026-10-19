@@ -28,7 +28,10 @@ import type { Worktree } from '../../../../shared/worktree/types'
 import { translate } from '@/i18n/i18n'
 import { describeAiVaultCliForkFailure } from './ai-vault-session-cli-fork'
 import type { AiVaultSessionResumeTargetState } from './ai-vault-session-resume'
-import { prepareAiVaultSessionContinuation } from './ai-vault-session-continuation'
+import {
+  exportAiVaultDshTranscript,
+  prepareAiVaultSessionContinuation
+} from './ai-vault-session-continuation'
 import type { AgentSessionContinuationRequest } from '@/lib/agent-session-continuation'
 import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-structured-session'
 import { adoptsCliConversations } from '../../../../shared/structured-agent-cli-conversation-adoption'
@@ -239,13 +242,20 @@ export function useAiVaultSessionLaunchActions({
         )
         return
       }
-      setContinuationRequest(
-        prepareAiVaultSessionContinuation({
-          session,
-          targetWorktreeId: targetId.worktreeId,
-          targetWorkspacePath
-        })
-      )
+      const prepare = (transcriptPath?: string | null): void =>
+        setContinuationRequest(
+          prepareAiVaultSessionContinuation({
+            session,
+            targetWorktreeId: targetId.worktreeId,
+            targetWorkspacePath,
+            ...(transcriptPath !== undefined ? { transcriptPath } : {})
+          })
+        )
+      if (session.agent === 'dsh') {
+        void exportAiVaultDshTranscript(session).then(prepare)
+        return
+      }
+      prepare()
     },
     [activeWorktree?.id, activeWorktreeId, targetState]
   )
