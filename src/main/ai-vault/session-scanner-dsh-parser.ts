@@ -107,7 +107,15 @@ function foldOwnEntry(
         titles.isFallback = entry.fallback
       }
       break
-    default:
+    case 'approval-asked':
+    case 'approval-decided':
+    case 'command-done':
+    case 'compaction':
+    case 'inherited-boundary':
+    case 'model':
+    case 'todo':
+    case 'turn-end':
+    case 'turn-start':
       break
   }
 }

@@ -1,4 +1,5 @@
 import { readOpenCodeNativeChatTranscriptFull } from './transcript-opencode'
+import { readDshNativeChatTranscriptFull } from './transcript-dsh'
 import { isENOENT } from '../ipc/filesystem-path-containment'
 import type {
   AgentType,
@@ -52,6 +53,9 @@ export async function readNativeChatTranscript(
       undefined,
       agent === 'zcode' ? 'zcode' : undefined
     )
+  }
+  if (resolveNativeChatTranscriptAgent(agent) === 'dsh') {
+    return readDshNativeChatTranscriptFull(agent, sessionId, options)
   }
   let filePath: string | null
   try {

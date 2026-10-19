@@ -114,6 +114,10 @@ export async function readNativeChatTranscriptCached(
       agent === 'zcode' ? 'zcode' : undefined
     )
   }
+  // A DSH read decodes its zstd frames from scratch; there is no text tail to cache against.
+  if (resolveNativeChatTranscriptAgent(agent) === 'dsh') {
+    return readNativeChatTranscript(agent, sessionId, { transcriptPath })
+  }
   const epoch = cacheEpoch
   let filePath: string | null
   try {

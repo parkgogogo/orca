@@ -9,6 +9,8 @@ import {
 import { isWslUncPath } from '../../shared/wsl-paths'
 import { walkSessionFiles } from '../ai-vault/session-scanner-discovery'
 import { resolveOmpSessionsDir } from '../ai-vault/omp-session-root'
+import { resolveDshSessionsDir } from '../ai-vault/session-scanner-dsh-paths'
+import { resolveDshSessionFileById } from '../dsh/session-log/dsh-session-locate'
 import {
   claudeProjectsHostDirs,
   codexHomeSessionsDir,
@@ -74,6 +76,8 @@ export type ResolveSessionFileOptions = {
   grokSessionsDir?: string
   /** Override the omp sessions root (`~/.omp/agent/sessions`). */
   ompSessionsDir?: string
+  /** Override the DSH sessions root (`$DSH_HOME/sessions`). */
+  dshSessionsDir?: string
   /** Authoritative transcript path reported by the agent hook
    *  (`providerSession.transcriptPath`). When set and the file exists, it is used
    *  directly — recent Claude Code names the transcript with a UUID that differs
@@ -103,6 +107,12 @@ export async function resolveSessionFilePath(
   const transcriptAgent = resolveNativeChatTranscriptAgent(agent)
   if (!transcriptAgent || transcriptAgent === 'opencode') {
     return null
+  }
+  // Why: DSH's hook bridge sends an empty transcript_path; its session id names the log dir.
+  if (transcriptAgent === 'dsh') {
+    return options.wslDistro?.trim()
+      ? null
+      : resolveDshSessionFileById(options.dshSessionsDir ?? resolveDshSessionsDir(), sessionId)
   }
   // Why: the hook's transcript_path is the exact file the agent is writing, so it
   // beats reconstructing a path from the session id. Route it through the host
@@ -164,7 +174,7 @@ async function resolveSessionFileById(
   options: ResolveSessionFileOptions,
   signal?: AbortSignal
 ): Promise<string | null> {
-  if (transcriptAgent === 'opencode') {
+  if (transcriptAgent === 'opencode' || transcriptAgent === 'dsh') {
     return null
   }
   const trimmedId = sessionId.trim()

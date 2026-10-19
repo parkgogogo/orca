@@ -1,5 +1,6 @@
 import { UNFLUSHED_SETTLE_MS } from './transcript-watch-contract'
 import { subscribeOpenCodeNativeChatTranscript } from './transcript-opencode-subscribe'
+import { subscribeDshNativeChatTranscript } from './transcript-dsh-subscribe'
 import { resolveNativeChatTranscriptAgent } from '../../shared/native-chat-agent-support'
 import { extname } from 'node:path'
 import type { NativeChatMessage } from '../../shared/native-chat-types'
@@ -273,6 +274,9 @@ export async function subscribeNativeChatTranscript(
       {},
       args.agent === 'zcode' ? 'zcode' : undefined
     )
+  }
+  if (resolveNativeChatTranscriptAgent(args.agent) === 'dsh') {
+    return subscribeDshNativeChatTranscript(args, setupSignal)
   }
   const decode = nativeChatLineDecoderForAgent(args.agent)
   if (!decode) {

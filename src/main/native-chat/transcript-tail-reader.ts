@@ -1,4 +1,5 @@
 import { readOpenCodeNativeChatTranscriptTail } from './transcript-opencode'
+import { readDshNativeChatTranscriptTail } from './transcript-dsh'
 import { isENOENT } from '../ipc/filesystem-path-containment'
 import type {
   AgentType,
@@ -251,6 +252,9 @@ export async function readNativeChatTranscriptTail(
       {},
       signal
     )
+  }
+  if (resolveNativeChatTranscriptAgent(args.agent) === 'dsh') {
+    return readDshNativeChatTranscriptTail(args, signal)
   }
   const decode = nativeChatLineDecoderForAgent(args.agent)
   const decodeLifecycle = nativeChatTurnLifecycleDecoderForAgent(args.agent)
