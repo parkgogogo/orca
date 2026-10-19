@@ -154,7 +154,9 @@ export const AI_VAULT_SCOPE_CWD_SOURCES: Record<AiVaultAgent, SessionScopeCwdSou
   devin: PARSE,
   kimi: PARSE,
   muse: PARSE,
-  jcode: PARSE
+  jcode: PARSE,
+  // A zstd frame log: no readable head, the parser takes the cwd from its session event.
+  dsh: PARSE
 }
 
 /** Whether a scan with these scope paths walks this agent's files past the recency cap. */

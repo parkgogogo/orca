@@ -37,6 +37,7 @@ export const SELF_CONTAINED_TRANSCRIPT_AGENTS = {
   kimi: false, // agents/main/wire.jsonl supplies messages.
   muse: true,
   jcode: true,
+  dsh: true,
   kiro: false // A .jsonl sidecar supplies messages.
 } satisfies Record<AiVaultAgent, boolean>
 
