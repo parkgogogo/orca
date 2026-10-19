@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, join } from 'node:path'
+import { basename, join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { NativeChatMessage } from '../../shared/native-chat-types'
@@ -138,7 +138,7 @@ describe('DSH Chat transcript', () => {
     const [result, image] = read.messages[3].blocks
     expect(result).toMatchObject({ type: 'tool-result', callId: 'c1', output: 'Captured.' })
     const imagePath = image.type === 'image-ref' ? image.path : undefined
-    expect(imagePath && extname(imagePath)).toBe('.png')
+    expect(imagePath && basename(imagePath)).toBe('shot.png')
     expect(imagePath && existsSync(imagePath)).toBe(true)
     expect(read.lifecycle).toMatchObject({ state: 'completed', turnId: 'dsh-turn:1' })
   })
